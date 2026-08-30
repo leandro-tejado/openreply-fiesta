@@ -33,6 +33,7 @@ import {
   reserveWorkspaceDMSend,
 } from "@/lib/billing/usage";
 import { recordWorkerAlert } from "@/lib/ops/worker-health";
+import { buildAiReply } from "@/lib/ai/reply";
 import {
   buildTrackedUrl,
   renderMessageWithTracking,
@@ -964,6 +965,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   });
 
   const dedupeId = `dm:${messageId}`;
+  let handledByKeyword = false;
 
   for (const automation of automations) {
     const matchResult = automation.matchAnyWord
@@ -975,6 +977,11 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         );
 
     if (!matchResult.matched) continue;
+
+    // La keyword gana SIEMPRE. Que haya matcheado alcanza para que la IA no
+    // toque este mensaje, incluso si el envio despues falla o se saltea: dos
+    // respuestas al mismo DM es peor que ninguna.
+    handledByKeyword = true;
 
     const existingLog = await prisma.dmLog.findUnique({
       where: {
@@ -1183,6 +1190,82 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       });
       throw error;
     }
+  }
+
+  if (!handledByKeyword) {
+    await replyWithAi(job, dedupeId);
+  }
+}
+
+/**
+ * Fallback de IA: solo corre cuando NINGUNA keyword matcheo el DM entrante.
+ * Es el unico punto de contacto entre OpenReply y lib/ai/ — mantenerlo asi es
+ * lo que hace rebaseable este fork contra upstream.
+ *
+ * Nunca tira: un fallo de la IA no debe reintentar el job ni tocar el camino
+ * de las keywords, que ya termino bien.
+ */
+async function replyWithAi(
+  job: Job<ProcessMessageJob>,
+  dedupeId: string
+): Promise<void> {
+  const { instagramAccountId, messageText, senderId } = job.data;
+
+  try {
+    const account = await prisma.instagramAccount.findUnique({
+      where: { instagramId: instagramAccountId },
+      select: {
+        id: true,
+        workspaceId: true,
+        instagramId: true,
+        accessToken: true,
+        aiEnabled: true,
+      },
+    });
+
+    if (!account?.aiEnabled || !account.accessToken) return;
+
+    // Una respuesta por mensaje, aunque el job se reintente.
+    const already = await prisma.aiMessage.findFirst({
+      where: {
+        role: "ASSISTANT",
+        conversation: { instagramAccountId: account.id, senderId },
+        createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (already && job.attemptsMade > 0) return;
+
+    const outcome = await buildAiReply({
+      workspaceId: account.workspaceId,
+      instagramAccountId: account.id,
+      senderId,
+      messageText,
+      inboundAt: new Date(job.timestamp),
+    });
+
+    if (!outcome.send) {
+      console.log(`[DM Worker] AI skip (${dedupeId}): ${outcome.reason}`);
+      return;
+    }
+
+    const accessToken = decryptToken(account.accessToken);
+    await sendDirectMessage(
+      accessToken,
+      account.instagramId,
+      senderId,
+      outcome.text
+    );
+  } catch (error) {
+    // Se registra y se sigue. La IA es un extra: si falla, el artista se queda
+    // sin respuesta conversacional, no sin su lead magnet.
+    await recordWorkerAlert({
+      level: "error",
+      message: `AI reply failed: ${formatError(error)}`,
+      jobId: job.id,
+      instagramAccountId,
+      commentId: dedupeId,
+    }).catch(() => {});
   }
 }
 

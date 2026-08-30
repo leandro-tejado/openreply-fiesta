@@ -17,6 +17,7 @@
     "worker:local": "tsx --env-file=.env worker/dm-worker.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@auth/prisma-adapter": "^2.11.2",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",

@@ -84,6 +84,7 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
+  aiConversations   AiConversation[]
 
   @@index([ownerId])
 }
@@ -133,6 +134,7 @@ model InstagramAccount {
   accessToken       String
   tokenExpiresAt    DateTime?
   webhookSubscribed Boolean  @default(false)
+  aiEnabled         Boolean  @default(false)
   connectedAt       DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -141,6 +143,7 @@ model InstagramAccount {
   dmLogs      DmLog[]
   linkClicks  LinkClick[]
   followerSnapshots FollowerSnapshot[]
+  aiConversations   AiConversation[]
 
   @@index([workspaceId])
 }
@@ -385,4 +388,54 @@ enum OperationalEventLevel {
   INFO
   WARNING
   ERROR
+}
+
+/// Una conversacion de IA por (cuenta de IG, artista). El contador diario y la
+/// ventana de 24h de Meta viven aca para que los guardrails corten ANTES de
+/// gastar un token.
+model AiConversation {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  instagramAccountId String
+  senderId           String
+  status             AiConversationStatus @default(ACTIVE)
+  messagesToday      Int      @default(0)
+  dayStartedAt       DateTime @default(now())
+  lastInboundAt      DateTime @default(now())
+  handoffReason      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  messages         AiMessage[]
+
+  @@unique([instagramAccountId, senderId])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           AiRole
+  content        String
+  inputTokens    Int?
+  outputTokens   Int?
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+enum AiConversationStatus {
+  ACTIVE
+  NEEDS_HUMAN
+  BLOCKED
+}
+
+enum AiRole {
+  USER
+  ASSISTANT
 }

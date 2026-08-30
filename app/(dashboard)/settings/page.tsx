@@ -20,6 +20,7 @@ interface SettingsData {
     AccountOption & {
       tokenExpiresAt: string | null;
       webhookSubscribed: boolean;
+      aiEnabled: boolean;
     }
   >;
 }
@@ -86,6 +87,28 @@ export default function SettingsPage() {
       body: JSON.stringify({ instagramAccountId }),
     });
     window.location.reload();
+  }
+
+  async function toggleAi(instagramAccountId: string, aiEnabled: boolean) {
+    setBusy(`ai:${instagramAccountId}`);
+    const res = await fetch("/api/instagram/ai-toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instagramAccountId, aiEnabled }),
+    });
+    if (res.ok) {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              instagramAccounts: prev.instagramAccounts.map((a) =>
+                a.id === instagramAccountId ? { ...a, aiEnabled } : a
+              ),
+            }
+          : prev
+      );
+    }
+    setBusy(null);
   }
 
   async function inviteMember(event: React.FormEvent) {
@@ -194,15 +217,33 @@ export default function SettingsPage() {
                     · {account.webhookSubscribed ? "Webhook ready" : "Webhook pending"}
                   </p>
                 </div>
-                <button
-                  onClick={() => disconnectInstagram(account.id)}
-                  disabled={busy === `disconnect:${account.id}`}
-                  className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
-                >
-                  {busy === `disconnect:${account.id}`
-                    ? "Disconnecting..."
-                    : "Disconnect"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleAi(account.id, !account.aiEnabled)}
+                    disabled={busy === `ai:${account.id}`}
+                    title="Responde con IA los DM que no matchean ninguna keyword. La keyword siempre gana."
+                    className={`inline-flex items-center justify-center rounded border px-4 py-2 text-sm font-medium transition-all disabled:opacity-50 ${
+                      account.aiEnabled
+                        ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20"
+                        : "border-border text-muted hover:border-border-hover hover:text-foreground"
+                    }`}
+                  >
+                    {busy === `ai:${account.id}`
+                      ? "..."
+                      : account.aiEnabled
+                        ? "Asistente IA: ON"
+                        : "Asistente IA: OFF"}
+                  </button>
+                  <button
+                    onClick={() => disconnectInstagram(account.id)}
+                    disabled={busy === `disconnect:${account.id}`}
+                    className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
+                  >
+                    {busy === `disconnect:${account.id}`
+                      ? "Disconnecting..."
+                      : "Disconnect"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
