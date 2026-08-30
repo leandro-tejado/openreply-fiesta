@@ -12,6 +12,7 @@ import {
 } from "@/lib/ai/guardrails";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { SYSTEM_PROMPT, MAX_REPLY_CHARS } from "@/lib/ai/persona";
+import { __testing } from "@/lib/ai/claude";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
 
@@ -200,6 +201,29 @@ describe("la keyword gana siempre", () => {
     expect(llegaALaIa("MARCA", keywords)).toBe(false);
     expect(llegaALaIa("me sirve para mi marca personal?", keywords)).toBe(false);
     expect(llegaALaIa("de que se trata la academia?", keywords)).toBe(true);
+  });
+});
+
+describe("parametros por familia de modelo", () => {
+  // Mandarle `thinking: adaptive` o `output_config.effort` a Haiku 4.5 devuelve
+  // 400. Este switch es lo unico que separa "cambiar de modelo con AI_MODEL" de
+  // "romper todas las respuestas en produccion".
+  const { supportsAdaptiveThinking } = __testing;
+
+  it("Haiku 4.5 NO lleva thinking ni effort", () => {
+    expect(supportsAdaptiveThinking("claude-haiku-4-5")).toBe(false);
+  });
+
+  it("los modelos 4.6+ si los llevan", () => {
+    for (const m of [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-opus-4-8",
+      "claude-sonnet-4-6",
+      "claude-fable-5",
+    ]) {
+      expect(supportsAdaptiveThinking(m)).toBe(true);
+    }
   });
 });
 
